@@ -1,6 +1,7 @@
 import { BoxGeometry, BufferGeometry, Mesh, MeshBasicMaterial } from "three"
 import { create } from "zustand"
 import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js"
+import { toast } from "sonner"
 
 export type EditorMode = "WALL_ADD" | "WALL_DELETE" | "DELETE"
 export type EditorModel = {
@@ -21,11 +22,14 @@ type EditorStore = {
     currentModel: Mesh | null
     furnitureData: EditorModel[]
     wallsData: WallData[]
+    wallsNeedUpdate: boolean
+    wallsMesh: Mesh
     addWall: (x: number, y: number) => void
     removeWall: (x: number, y: number) => void
     checkWall: (x: number, y: number, side: "o1" | "o2" | "o3" | "o4", walls: WallData[]) => boolean
     checkWallWS: (x: number, y: number) => boolean
-    generateWalls: () => Mesh
+    generateWalls: () => void
+    wallsNeedUpdateSet: () => void
 }
 
 export const useEditorStore = create<EditorStore>()((set) => {
@@ -34,11 +38,23 @@ export const useEditorStore = create<EditorStore>()((set) => {
         currentModel: null,
         furnitureData: [],
         wallsData: [],
+        wallsNeedUpdate: false,
+        wallsMesh: new Mesh(),
         addWall(x, y) {
-            set((state) => ({
-                ...state,
-                wallsData: [...state.wallsData, { x, y, o1: false, o2: false, o3: false, o4: false }],
-            }))
+            set((state) => {
+                const exists = state.wallsData.some((w) => w.x === x && w.y === y)
+
+                if (exists) {
+                    return state
+                }
+
+                state.generateWalls()
+
+                return {
+                    ...state,
+                    wallsData: [{ x, y, o1: false, o2: false, o3: false, o4: false }, ...state.wallsData],
+                }
+            })
         },
         removeWall(x, y) {
             let walls_ = this.wallsData
@@ -56,11 +72,14 @@ export const useEditorStore = create<EditorStore>()((set) => {
         },
         generateWalls() {
             if (this.wallsData.length > 0) {
+                toast("Generate walls!")
                 const baseColumn = new BoxGeometry(0.1, 2, 0.1)
                 const vert = new BoxGeometry(0.9, 2, 0.1)
                 const horz = new BoxGeometry(0.1, 2, 0.9)
                 const walls_geos: BufferGeometry[] = []
-                const newWalls = this.wallsData
+                const newWalls = this.wallsData.map((el) => {
+                    return { ...el, o1: false, o2: false, o3: false, o4: false }
+                })
 
                 this.wallsData.forEach(({ x, y }) => {
                     const column_geo = baseColumn.clone()
@@ -93,15 +112,30 @@ export const useEditorStore = create<EditorStore>()((set) => {
                         wall_geo.translate(x + 0.5, 1, y)
                         walls_geos.push(wall_geo)
                     }
+
+                    newWalls.splice(
+                        newWalls.findIndex((a) => a.x == x && a.y == y),
+                        1
+                    )
+                    newWalls.push({ x, y, ...sides })
                 })
 
+                console.log(newWalls)
                 console.log(walls_geos)
 
                 const walls_geo = BufferGeometryUtils.mergeGeometries(walls_geos, false)
-                return new Mesh(walls_geo, new MeshBasicMaterial({ color: "#0a0a0a" }))
+                set((state) => ({
+                    ...state,
+                    wallsData: newWalls,
+                    wallsMesh: new Mesh(walls_geo, new MeshBasicMaterial({ color: "#0a0a0a" })),
+                    wallsNeedUpdate: true,
+                }))
             } else {
-                return new Mesh()
+                set((state) => state)
             }
+        },
+        wallsNeedUpdateSet() {
+            set((state) => ({ ...state, wallsNeedUpdate: false }))
         },
     }
 })
