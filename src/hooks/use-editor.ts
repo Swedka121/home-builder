@@ -1,6 +1,6 @@
 import { useEditorStore } from "@/store/editorStore"
 import { useTheme } from "next-themes"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import * as THREE from "three"
 import { OrbitControls } from "three/addons/controls/OrbitControls.js"
 
@@ -74,24 +74,7 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>) 
         noThemed: [],
     })
     const theme = useTheme()
-    const mode = useEditorStore((state) => state.mode)
-    const addWall = useEditorStore((state) => state.addWall)
-    const wallsMesh = useEditorStore((state) => state.wallsMesh)
-
-    const modeRef = useRef(mode)
-    const addWallRef = useRef(addWall)
-    const wallsMeshRef = useRef(wallsMesh)
-
-    useEffect(() => {
-        modeRef.current = mode
-    }, [mode])
-    useEffect(() => {
-        addWallRef.current = addWall
-    }, [addWall])
-    useEffect(() => {
-        wallsMeshRef.current = wallsMesh
-    }, [wallsMesh])
-    // const editorStore = useEditorStore()
+    const editorStore = useEditorStore()
 
     useEffect(() => {
         const scene = new THREE.Scene()
@@ -169,6 +152,14 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>) 
     }, [theme.theme])
 
     useEffect(() => {
+        const mesh = editorStore.generateWalls()
+        threeState.scene?.add(mesh)
+
+        return () => {
+            threeState.scene?.remove(mesh)
+        }
+    }, [editorStore.wallsData])
+    useEffect(() => {
         if (!canvasRef.current) return
 
         const getPosOnGrid = (event: PointerEvent) => {
@@ -181,14 +172,12 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>) 
 
                 raycaster.setFromCamera(mouse, threeState.camera)
 
-                const state = useEditorStore.getState()
                 const intersections = raycaster.intersectObject(threeState.gridPlane, true)
                 if (intersections.length > 0) {
                     intersections[0].point.round()
 
-                    if (state.mode == "WALL_ADD") {
-                        state.addWall(intersections[0].point.x, intersections[0].point.z)
-                    }
+                    if (editorStore.mode == "WALL_ADD")
+                        editorStore.addWall(intersections[0].point.x, intersections[0].point.z)
                 }
             }
         }
@@ -199,12 +188,4 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>) 
             canvasRef.current?.removeEventListener("click", getPosOnGrid)
         }
     }, [threeState])
-
-    useEffect(() => {
-        console.log(wallsMeshRef.current)
-        if (wallsMeshRef.current) threeState.scene?.add(wallsMeshRef.current)
-        return () => {
-            if (wallsMeshRef.current) threeState.scene?.remove(wallsMeshRef.current)
-        }
-    }, [wallsMesh])
 }
