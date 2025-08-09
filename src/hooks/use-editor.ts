@@ -1,6 +1,7 @@
 import { useEditorStore } from "@/store/editorStore"
 import { useTheme } from "next-themes"
 import { useEffect, useState } from "react"
+import { toast } from "sonner"
 import * as THREE from "three"
 import { OrbitControls } from "three/addons/controls/OrbitControls.js"
 
@@ -152,17 +153,20 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>) 
     }, [theme.theme])
 
     useEffect(() => {
-        const mesh = editorStore.generateWalls()
+        // if (editorStore.wallsMesh) {
+        const mesh = editorStore.wallsMesh
         threeState.scene?.add(mesh)
 
         return () => {
             threeState.scene?.remove(mesh)
         }
+        // }
     }, [editorStore.wallsData])
+
     useEffect(() => {
         if (!canvasRef.current) return
 
-        const getPosOnGrid = (event: PointerEvent) => {
+        const getPosOnGrid = (event: MouseEvent) => {
             if (threeState.camera && threeState.gridPlane) {
                 const raycaster = new THREE.Raycaster()
                 const mouse = new THREE.Vector2()
@@ -176,16 +180,18 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>) 
                 if (intersections.length > 0) {
                     intersections[0].point.round()
 
-                    if (editorStore.mode == "WALL_ADD")
+                    if (editorStore.mode == "WALL_ADD") {
                         editorStore.addWall(intersections[0].point.x, intersections[0].point.z)
+                        useEditorStore.getState().generateWalls()
+                    }
                 }
             }
         }
 
-        canvasRef.current.addEventListener("click", getPosOnGrid)
+        canvasRef.current.addEventListener("mousedown", getPosOnGrid)
 
         return () => {
-            canvasRef.current?.removeEventListener("click", getPosOnGrid)
+            canvasRef.current?.removeEventListener("mousedown", getPosOnGrid)
         }
     }, [threeState])
 }
