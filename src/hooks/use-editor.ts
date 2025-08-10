@@ -1,3 +1,4 @@
+import { skybox } from "@/components/3d/skybox"
 import { useEditorStore } from "@/store/editorStore"
 import { useWorldStore } from "@/store/worldStore"
 import { useTheme } from "next-themes"
@@ -7,12 +8,13 @@ import { toast } from "sonner"
 import * as THREE from "three"
 import { OrbitControls } from "three/addons/controls/OrbitControls.js"
 
-export type ThreeStateType = {
+export type threeStateType = {
     scene: THREE.Scene | null
     camera: THREE.PerspectiveCamera | null
     renderer: THREE.WebGLRenderer | null
     grid: THREE.GridHelper | null
-    gridPlane: THREE.Mesh | null
+    gridPlane: THREE.Plane | null
+    skyboxMesh: THREE.Mesh | null
 }
 
 type AnyGeometry =
@@ -63,12 +65,13 @@ type MeshOrLine =
 
 export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>, worldId: string) {
     const isMoved = useRef(false)
-    const [threeState, setThreeState] = useState<ThreeStateType>({
+    const threeState = useRef<threeStateType>({
         scene: null,
         camera: null,
         renderer: null,
         grid: null,
         gridPlane: null,
+        skyboxMesh: null,
     })
     const [meshState, setMeshState] = useState<{
         themed: MeshOrLine[]
@@ -77,6 +80,7 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>, 
         themed: [],
         noThemed: [],
     })
+    const ghost = useRef(new THREE.Mesh())
     const theme = useTheme()
     const editorStoreState = useEditorStore()
     const editorStore = useRef(editorStoreState)
@@ -100,16 +104,17 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>, 
             renderer.shadowMap.enabled = true
             renderer.shadowMap.type = THREE.PCFSoftShadowMap
 
-            const PlaneG = new THREE.PlaneGeometry(128, 128)
-            const PlaneMat = new THREE.MeshStandardMaterial({ color: "#2d630e", roughness: 1, metalness: 0.0 })
-            const PlaneM = new THREE.Mesh(PlaneG, PlaneMat)
-            PlaneM.receiveShadow = true
-            PlaneM.position.y -= 0.01
-            PlaneM.rotation.x = -Math.PI / 2
+            // const PlaneG = new THREE.PlaneGeometry(128, 128)
+            // const PlaneMat = new THREE.MeshStandardMaterial({ color: "#2d630e", roughness: 1, metalness: 0.0 })
+            // const PlaneM = new THREE.Mesh(PlaneG, PlaneMat)
+            // PlaneM.receiveShadow = true
+            // PlaneM.position.y -= 0.01
+            // PlaneM.rotation.x = -Math.PI / 2
 
-            scene.add(PlaneM)
+            let plane = new THREE.Plane(new THREE.Vector3(0, 1, 0))
+
             let meshState_ = meshState
-            meshState_.noThemed.push(PlaneM)
+            // meshState_.noThemed.push(PlaneM)
             setMeshState(meshState_)
 
             const AmbientLight = new THREE.AmbientLight("#f5e8cfff", 1.1)
@@ -145,7 +150,10 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>, 
             camera.position.set(0, 10, 10)
             camera.lookAt(new THREE.Vector3(0, 0, 0))
 
-            setThreeState({ scene, camera, renderer, grid, gridPlane: PlaneM })
+            const skyboxMesh = skybox.getTheme(theme.theme || "light") || new THREE.Mesh()
+            scene.add(skyboxMesh)
+
+            threeState.current = { ...threeState.current, scene, skyboxMesh, grid, renderer, camera, gridPlane: plane }
 
             const controls = new OrbitControls(camera, canvasRef.current)
             controls.update()
@@ -184,8 +192,10 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>, 
     }, [])
 
     useEffect(() => {
-        threeState.renderer?.setClearColor(theme.theme == "dark" ? "#0a0a0a" : "#ffffff")
-        if (threeState.grid) threeState.scene?.remove(threeState.grid)
+        if (!threeState.current) return
+        threeState.current.renderer?.setClearColor(theme.theme == "dark" ? "#0a0a0a" : "#ffffff")
+
+        const skyboxMesh = skybox.getTheme(theme.theme || "light") || new THREE.Mesh()
 
         const grid = new THREE.GridHelper(
             64,
@@ -193,7 +203,13 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>, 
             theme.theme != "dark" ? "#0a0a0a" : "#ffffff",
             theme.theme != "dark" ? "#0a0a0a" : "#ffffff"
         )
-        if (threeState.scene) threeState.scene.add(grid)
+
+        threeState.current = { ...threeState.current, skyboxMesh, grid }
+
+        if (threeState.current.scene) {
+            threeState.current.scene.add(grid)
+            threeState.current.scene.add(skyboxMesh)
+        }
 
         let meshState_ = meshState
         meshState_.themed.forEach((el) => {
@@ -201,15 +217,22 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>, 
                 el.material.color.set(theme.theme != "dark" ? "#0a0a0a" : "#ffffff")
             }
         })
+
+        return () => {
+            if (threeState.current.scene && threeState.current.grid && threeState.current.skyboxMesh) {
+                threeState.current.scene.remove(threeState.current.grid)
+                threeState.current.scene.remove(threeState.current.skyboxMesh)
+            }
+        }
     }, [theme.theme])
 
     useEffect(() => {
         // if (editorStore.wallsMesh) {
         const mesh = editorStore.current.wallsMesh
-        threeState.scene?.add(mesh)
+        threeState.current.scene?.add(mesh)
 
         return () => {
-            threeState.scene?.remove(mesh)
+            threeState.current.scene?.remove(mesh)
         }
         // }
     }, [editorStore.current.wallsData, editorStore.current.wallsMesh])
@@ -217,41 +240,55 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>, 
     useEffect(() => {
         if (!canvasRef.current) return
 
-        const getPosOnGrid = (event: MouseEvent) => {
-            if (threeState.camera && threeState.gridPlane) {
+        const getPosOnGrid = (event: MouseEvent, actionMode?: boolean) => {
+            if (threeState.current.camera && threeState.current.gridPlane) {
                 const raycaster = new THREE.Raycaster()
                 const mouse = new THREE.Vector2()
 
                 mouse.x = (event.clientX / window.innerWidth) * 2 - 1
                 mouse.y = -(event.clientY / window.innerHeight) * 2 + 1
 
-                raycaster.setFromCamera(mouse, threeState.camera)
+                raycaster.setFromCamera(mouse, threeState.current.camera)
 
-                const intersections = raycaster.intersectObjects(
-                    [threeState.gridPlane, editorStore.current.wallsMesh],
-                    true
-                )
-                if (intersections.length > 0) {
-                    intersections.forEach((el) => {
-                        el.point.setY(0)
-                        el.point.round()
+                let points = []
 
-                        console.log(el)
+                // const intersections = raycaster.intersectObjects([editorStore.current.wallsMesh], true)
+                // if (intersections.length > 0) {
+                //     intersections.forEach((el) => {
+                //         el.point.setY(0)
+                //         el.point.round()
 
+                //         if (actionMode) {
+                //             if (editorStore.current.mode == "WALL_DELETE") {
+                //                 editorStore.current.removeWall(el.point.x, el.point.z)
+                //                 useEditorStore.getState().generateWalls()
+                //             }
+                //         }
+                //         points.push(el.point)
+                //     })
+                // }
+
+                const point = new THREE.Vector3()
+                raycaster.ray.intersectPlane(threeState.current.gridPlane, point)
+
+                if (point) {
+                    point.round()
+                    console.log(point)
+                    points.push(point)
+                    if (actionMode) {
                         if (editorStore.current.mode == "WALL_ADD") {
-                            editorStore.current.addWall(el.point.x, el.point.z)
+                            editorStore.current.addWall(point.x, point.z)
                             useEditorStore.getState().generateWalls()
                         }
                         if (editorStore.current.mode == "WALL_DELETE") {
-                            editorStore.current.removeWall(el.point.x, el.point.z)
+                            editorStore.current.removeWall(point.x, point.z)
                             useEditorStore.getState().generateWalls()
                         }
-                        // if (editorStore.mode == "WALL_ADD") {
-                        //     editorStore.addWall(intersections[0].point.x, intersections[0].point.z)
-                        //     editorStore.generateWalls()
-                        // }
-                    })
+                    }
                 }
+                return points.filter(
+                    (value, index, self) => index === self.findIndex((a) => a.x == value.x && a.z == value.z)
+                )
             }
         }
 
@@ -262,10 +299,43 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>, 
         const mouseMoved = (event: MouseEvent) => {
             console.log("moved!")
             isMoved.current = true
+
+            const editorStore = useEditorStore.getState()
+
+            const points = getPosOnGrid(event)
+
+            if (threeState.current.scene && points && points[0]) {
+                let color = "#ffffff"
+
+                console.log(editorStore.mode)
+
+                if (editorStore.mode == "WALL_ADD") {
+                    color = "#68cc17"
+                }
+                if (editorStore.mode == "WALL_DELETE") {
+                    color = "#cc1010"
+                }
+
+                threeState.current.scene.remove(ghost.current)
+
+                const geometry = new THREE.BoxGeometry(0.2, 2, 0.2)
+                geometry.translate(0, 1, 0)
+                const material = new THREE.MeshBasicMaterial({
+                    color,
+                    blendAlpha: 0.6,
+                })
+
+                const mesh = new THREE.Mesh(geometry, material)
+                mesh.position.x = points[0].x
+                mesh.position.z = points[0].z
+
+                threeState.current.scene.add(mesh)
+                ghost.current = mesh
+            }
         }
         const mouseUpEvent = (event: MouseEvent) => {
             console.log("up!", isMoved.current)
-            if (!isMoved.current) getPosOnGrid(event)
+            if (!isMoved.current) getPosOnGrid(event, true)
         }
 
         canvasRef.current.addEventListener("mousedown", mouseDownEvent)
@@ -277,5 +347,5 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>, 
             canvasRef.current?.removeEventListener("mousemove", mouseMoved)
             canvasRef.current?.removeEventListener("mouseup", mouseUpEvent)
         }
-    }, [threeState])
+    }, [threeState.current])
 }
