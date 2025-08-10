@@ -55,14 +55,18 @@ export const useWorldStore = create<WorldStore>()((set) => ({
         return true
     },
     load() {
-        let worlds_ = JSON.parse(localStorage.getItem("worlds") || "", (key, value) => {
-            if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/.test(value)) {
-                return new Date(value)
-            }
-            return value
-        }) as World[]
-        let worlds__ = new Map(Object.entries(worlds_))
-        set((state) => ({ ...state, worlds: worlds__ }))
+        try {
+            let worlds_ = JSON.parse(localStorage.getItem("worlds") || "", (key, value) => {
+                if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/.test(value)) {
+                    return new Date(value)
+                }
+                return value
+            }) as World[]
+            let worlds__ = new Map(Object.entries(worlds_))
+            set((state) => ({ ...state, worlds: worlds__ }))
+        } catch (err) {
+            toast("Nothing to load")
+        }
     },
     loadFromFile(text) {
         try {
