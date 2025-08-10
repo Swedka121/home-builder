@@ -1,6 +1,6 @@
 "use client"
-import React, { useEffect } from "react"
-import { Plus } from "lucide-react"
+import React, { useEffect, useState } from "react"
+import { Import, Plus } from "lucide-react"
 import WorldCard from "@/components/main/WorldCard"
 import { Card, CardContent } from "@/components/ui/shared/card"
 import { useWorldStore } from "@/store/worldStore"
@@ -34,6 +34,8 @@ export default function WorldList() {
         },
     })
 
+    const [isOpen, setIsOpen] = useState(false)
+
     function onSubmit(values: z.infer<typeof formSchema>) {
         store.create(values.name)
         toast("World has created!")
@@ -65,7 +67,7 @@ export default function WorldList() {
                 </DialogTrigger>
                 <DialogContent>
                     <Form {...form}>
-                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
                             <DialogHeader>
                                 <DialogTitle>Let's start!</DialogTitle>
                                 <DialogDescription>Fill this form to create your world</DialogDescription>
@@ -74,7 +76,7 @@ export default function WorldList() {
                                     control={form.control}
                                     name="name"
                                     render={({ field }) => (
-                                        <FormItem>
+                                        <FormItem className="mt-5 mb-5">
                                             <FormLabel>Username</FormLabel>
                                             <FormControl>
                                                 <Input placeholder="shadcn" {...field} />
@@ -84,7 +86,7 @@ export default function WorldList() {
                                     )}
                                 />
                             </DialogHeader>
-                            <DialogFooter>
+                            <DialogFooter className="mt-5">
                                 <DialogClose>
                                     <Button variant="default" type="submit">
                                         Create
@@ -93,6 +95,38 @@ export default function WorldList() {
                             </DialogFooter>
                         </form>
                     </Form>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={isOpen} onOpenChange={(open) => setIsOpen(open)}>
+                <DialogTrigger>
+                    <Card className="transition-all hover:border-accent-foreground">
+                        <CardContent className="flex justify-center">
+                            <Import />
+                        </CardContent>
+                    </Card>
+                </DialogTrigger>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Import your world file!</DialogTitle>
+                        <DialogDescription>Drag your file to field for import your world</DialogDescription>
+                        <Input
+                            type="file"
+                            className="mt-5"
+                            onChange={async (ev) => {
+                                if (ev.target.files && ev.target.files[0]) {
+                                    const text = await ev.target.files[0].text()
+                                    if (store.loadFromFile(text) !== false) setIsOpen(false)
+                                }
+                            }}
+                        ></Input>
+                    </DialogHeader>
+                    <DialogFooter className="mt-5">
+                        <DialogClose>
+                            <Button variant="default" type="submit">
+                                Close
+                            </Button>
+                        </DialogClose>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
         </>

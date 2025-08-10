@@ -1,6 +1,8 @@
 import { useEditorStore } from "@/store/editorStore"
+import { useWorldStore } from "@/store/worldStore"
 import { useTheme } from "next-themes"
-import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import * as THREE from "three"
 import { OrbitControls } from "three/addons/controls/OrbitControls.js"
@@ -59,7 +61,8 @@ type MeshOrLine =
     | THREE.Mesh<AnyGeometry, AnyMaterial, THREE.Object3DEventMap>
     | THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>
 
-export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
+export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>, worldId: string) {
+    const isMoved = useRef(false)
     const [threeState, setThreeState] = useState<ThreeStateType>({
         scene: null,
         camera: null,
@@ -75,7 +78,13 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>) 
         noThemed: [],
     })
     const theme = useTheme()
-    const editorStore = useEditorStore()
+    const editorStoreState = useEditorStore()
+    const editorStore = useRef(editorStoreState)
+    const router = useRouter()
+
+    useEffect(() => {
+        editorStore.current = editorStoreState
+    }, [editorStoreState])
 
     useEffect(() => {
         const scene = new THREE.Scene()
@@ -88,10 +97,13 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>) 
         if (canvasRef.current) {
             const renderer = new THREE.WebGLRenderer({ canvas: canvasRef.current })
             renderer.setSize(canvasRef.current.clientWidth || 1, canvasRef.current.clientHeight || 1)
+            renderer.shadowMap.enabled = true
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap
 
             const PlaneG = new THREE.PlaneGeometry(128, 128)
-            const PlaneMat = new THREE.MeshBasicMaterial({ color: "#2d630e" })
+            const PlaneMat = new THREE.MeshStandardMaterial({ color: "#2d630e", roughness: 1, metalness: 0.0 })
             const PlaneM = new THREE.Mesh(PlaneG, PlaneMat)
+            PlaneM.receiveShadow = true
             PlaneM.position.y -= 0.01
             PlaneM.rotation.x = -Math.PI / 2
 
@@ -99,6 +111,28 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>) 
             let meshState_ = meshState
             meshState_.noThemed.push(PlaneM)
             setMeshState(meshState_)
+
+            const AmbientLight = new THREE.AmbientLight("#f5e8cfff", 1.1)
+            const DirectionLight = new THREE.DirectionalLight("#ffe6a1", 1.5) // softer yellow sunlight
+            DirectionLight.castShadow = true
+
+            DirectionLight.shadow.mapSize.width = 4096 // higher = sharper shadows
+            DirectionLight.shadow.mapSize.height = 4096
+
+            DirectionLight.shadow.camera.near = 1
+            DirectionLight.shadow.camera.far = 500 // must cover scene depth
+
+            // Increase the orthographic shadow camera size for wide coverage
+            // DirectionLight.shadow.camera.left = -200
+            // DirectionLight.shadow.camera.right = 200
+            // DirectionLight.shadow.camera.top = 200
+            // DirectionLight.shadow.camera.bottom = -200
+
+            DirectionLight.position.set(-128, 30, -128)
+            DirectionLight.lookAt(128, 0, 128)
+
+            scene.add(AmbientLight)
+            scene.add(DirectionLight)
 
             const grid = new THREE.GridHelper(
                 64,
@@ -121,12 +155,29 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>) 
                 animationId = requestAnimationFrame(render)
 
                 renderer.render(scene, camera)
-                console.log("render")
             }
 
             render()
 
+            let worldStore = useWorldStore.getState()
+            let editorStore = useEditorStore.getState()
+            let result = worldStore.join(worldId)
+            console.log(result)
+            if (result === false) router.push("/")
+            if (result !== false) {
+                editorStore.setWallsData(result.data.walls)
+            }
+
+            let timeoutSave = setInterval(() => {
+                let worldStore = useWorldStore.getState()
+                let editorStore = useEditorStore.getState()
+                console.log(editorStore, worldStore)
+                if (worldStore.save(worldId, editorStore.wallsData)) toast("World autosave is success")
+                else toast("World autosave is failed")
+            }, 100 * 60)
+
             return () => {
+                clearInterval(timeoutSave)
                 cancelAnimationFrame(animationId)
             }
         }
@@ -154,14 +205,14 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>) 
 
     useEffect(() => {
         // if (editorStore.wallsMesh) {
-        const mesh = editorStore.wallsMesh
+        const mesh = editorStore.current.wallsMesh
         threeState.scene?.add(mesh)
 
         return () => {
             threeState.scene?.remove(mesh)
         }
         // }
-    }, [editorStore.wallsData])
+    }, [editorStore.current.wallsData, editorStore.current.wallsMesh])
 
     useEffect(() => {
         if (!canvasRef.current) return
@@ -176,22 +227,55 @@ export function useEditor(canvasRef: React.RefObject<HTMLCanvasElement | null>) 
 
                 raycaster.setFromCamera(mouse, threeState.camera)
 
-                const intersections = raycaster.intersectObject(threeState.gridPlane, true)
+                const intersections = raycaster.intersectObjects(
+                    [threeState.gridPlane, editorStore.current.wallsMesh],
+                    true
+                )
                 if (intersections.length > 0) {
-                    intersections[0].point.round()
+                    intersections.forEach((el) => {
+                        el.point.setY(0)
+                        el.point.round()
 
-                    if (editorStore.mode == "WALL_ADD") {
-                        editorStore.addWall(intersections[0].point.x, intersections[0].point.z)
-                        useEditorStore.getState().generateWalls()
-                    }
+                        console.log(el)
+
+                        if (editorStore.current.mode == "WALL_ADD") {
+                            editorStore.current.addWall(el.point.x, el.point.z)
+                            useEditorStore.getState().generateWalls()
+                        }
+                        if (editorStore.current.mode == "WALL_DELETE") {
+                            editorStore.current.removeWall(el.point.x, el.point.z)
+                            useEditorStore.getState().generateWalls()
+                        }
+                        // if (editorStore.mode == "WALL_ADD") {
+                        //     editorStore.addWall(intersections[0].point.x, intersections[0].point.z)
+                        //     editorStore.generateWalls()
+                        // }
+                    })
                 }
             }
         }
 
-        canvasRef.current.addEventListener("mousedown", getPosOnGrid)
+        const mouseDownEvent = (event: MouseEvent) => {
+            console.log("down!")
+            isMoved.current = false
+        }
+        const mouseMoved = (event: MouseEvent) => {
+            console.log("moved!")
+            isMoved.current = true
+        }
+        const mouseUpEvent = (event: MouseEvent) => {
+            console.log("up!", isMoved.current)
+            if (!isMoved.current) getPosOnGrid(event)
+        }
+
+        canvasRef.current.addEventListener("mousedown", mouseDownEvent)
+        canvasRef.current.addEventListener("mousemove", mouseMoved)
+        canvasRef.current.addEventListener("mouseup", mouseUpEvent)
 
         return () => {
-            canvasRef.current?.removeEventListener("mousedown", getPosOnGrid)
+            canvasRef.current?.removeEventListener("mousedown", mouseDownEvent)
+            canvasRef.current?.removeEventListener("mousemove", mouseMoved)
+            canvasRef.current?.removeEventListener("mouseup", mouseUpEvent)
         }
     }, [threeState])
 }

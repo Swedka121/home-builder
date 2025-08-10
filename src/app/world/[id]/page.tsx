@@ -52,18 +52,18 @@ import { Button } from "@/components/ui/shared/button"
 import { ModeToggle } from "@/components/ui/shared/theme-button"
 
 import React from "react"
+import { useEditorStore } from "@/store/editorStore"
+import InformationLabel from "@/components/editor/informationLabel"
+import { useRouter } from "next/router"
 
-export default function page() {
+export default async function page({ params }: { params: Promise<{ id: string }> }) {
+    const params_ = await params
     return (
         <>
             <div className="flex flex-row">
                 <EditorSidebar />
-                <ThreeWindow />
-                <Menubar className="absolute right-0 top-5 mr-10 z-2">
-                    <MenubarMenu>
-                        <MenubarTrigger>Current mode: </MenubarTrigger>
-                    </MenubarMenu>
-                </Menubar>
+                <ThreeWindow worldId={params_.id} />
+                <InformationLabel />
             </div>
         </>
     )

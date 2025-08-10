@@ -1,3 +1,4 @@
+"use client"
 import React from "react"
 import {
     Sidebar,
@@ -35,8 +36,10 @@ import {
 import Link from "next/link"
 import { Button } from "../ui/shared/button"
 import { ModeToggle } from "../ui/shared/theme-button"
+import { useEditorStore } from "@/store/editorStore"
 
 export default function EditorSidebar() {
+    const editorStore = useEditorStore()
     return (
         <Sidebar collapsible="icon">
             <SidebarHeader className="flex flex-row">
@@ -52,19 +55,31 @@ export default function EditorSidebar() {
                     <SidebarGroupContent>
                         <SidebarMenu>
                             <SidebarMenuItem>
-                                <SidebarMenuButton>
+                                <SidebarMenuButton
+                                    onClick={() => {
+                                        editorStore.setMode("WALL_ADD")
+                                    }}
+                                >
                                     <BrickWall color="#429710ff" />
                                     <span>Add walls</span>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                             <SidebarMenuItem>
-                                <SidebarMenuButton>
+                                <SidebarMenuButton
+                                    onClick={() => {
+                                        editorStore.setMode("WALL_DELETE")
+                                    }}
+                                >
                                     <BrickWall color="#a71212ff" />
                                     <span>Delete walls</span>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                             <SidebarMenuItem>
-                                <SidebarMenuButton>
+                                <SidebarMenuButton
+                                    onClick={() => {
+                                        editorStore.setMode("DELETE")
+                                    }}
+                                >
                                     <Trash />
                                     <span>Delete furniture</span>
                                 </SidebarMenuButton>
